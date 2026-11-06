@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8">
+<title>WiVoice Receiver</title>
+<style>
+  body{font:17px system-ui;background:#111827;color:#f9fafb;max-width:560px;margin:12vh auto;padding:24px}h1{font-size:2rem}p{color:#cbd5e1;line-height:1.5}button{font:inherit;padding:12px 20px;border:0;border-radius:10px;background:#38bdf8;color:#082f49;font-weight:700}input{font:inherit;padding:10px;border-radius:8px;border:1px solid #64748b;background:#1f2937;color:white;width:180px}#status{margin-top:20px;color:#94a3b8}
+</style>
+<h1>WiVoice</h1>
+<p>Connect this device to the same Wi-Fi as the streaming Mac, then tap Listen.</p>
+<p>Mac address: <input id="host" placeholder="192.168.1.20"></p>
+<button id="listen">Listen</button>
+<p id="status">Not connected</p>
+<script>
+let ws, ctx, nextTime=0;
+document.querySelector('#listen').onclick=async()=>{
+  const host=document.querySelector('#host').value.trim();
+  if(!host){document.querySelector('#status').textContent='Enter the Mac’s IP address.';return}
+  try{
+    ctx=new (window.AudioContext||window.webkitAudioContext)({sampleRate:48000}); await ctx.resume();
+    ws=new WebSocket(`ws://${host}:8765`); ws.binaryType='arraybuffer';
+    ws.onopen=()=>{document.querySelector('#status').textContent='Connected. Playing system audio.';nextTime=ctx.currentTime;document.querySelector('#listen').textContent='Listening'};
+    ws.onmessage=e=>{
+      const bytes=new Uint8Array(e.data), floats=new Float32Array(bytes.buffer,bytes.byteOffset,Math.floor(bytes.byteLength/4));
+      const frames=Math.floor(floats.length/2); if(!frames)return;
+      const audio=ctx.createBuffer(2,frames,48000); audio.copyToChannel(floats.filter((_,i)=>i%2===0),0); audio.copyToChannel(floats.filter((_,i)=>i%2===1),1);
+      const src=ctx.createBufferSource();src.buffer=audio;src.connect(ctx.destination);const start=Math.max(nextTime,ctx.currentTime+0.04);src.start(start);nextTime=start+audio.duration;
+    };
+    ws.onerror=()=>document.querySelector('#status').textContent='Could not connect. Check the address and firewall settings.';
+    ws.onclose=()=>document.querySelector('#status').textContent='Disconnected';
+  }catch(e){document.querySelector('#status').textContent='Audio could not start: '+e.message}
+};
+</script>
+</html>
