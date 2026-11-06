@@ -244,6 +244,7 @@ private final class AudioWebSocketServer {
             var packet = Data([kind])
             var rate = sampleRate.bigEndian
             withUnsafeBytes(of: &rate) { packet.append(contentsOf: $0) }
+            packet.append(contentsOf: [0, 0, 0]) // Keep Float32 PCM aligned to an 8-byte header.
             packet.append(pcm)
             let frame = Self.frame(packet)
             for client in self.clients { client.send(content: frame, completion: .contentProcessed { _ in }) }

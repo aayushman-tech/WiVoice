@@ -18,9 +18,9 @@ document.querySelector('#listen').onclick=async()=>{
     ws=new WebSocket(`ws://${location.hostname}:${location.port||8765}`);ws.binaryType='arraybuffer';
     ws.onopen=()=>{document.querySelector('#status').textContent='Connected. Playing incoming audio.';nextTime=[ctx.currentTime+0.08,ctx.currentTime+0.08];document.querySelector('#listen').textContent='Listening'};
     ws.onmessage=e=>{
-      const bytes=new Uint8Array(e.data);if(bytes.byteLength<5)return;
+      const bytes=new Uint8Array(e.data);if(bytes.byteLength<8)return;
       const kind=bytes[0],sampleRate=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength).getUint32(1,false);
-      const floats=new Float32Array(bytes.buffer,bytes.byteOffset+5,Math.floor((bytes.byteLength-5)/4));
+      const floats=new Float32Array(bytes.buffer,bytes.byteOffset+8,Math.floor((bytes.byteLength-8)/4));
       const frames=Math.floor(floats.length/2);if(!frames)return;
       const left=new Float32Array(frames),right=new Float32Array(frames);
       for(let i=0;i<frames;i++){left[i]=floats[i*2];right[i]=floats[i*2+1]}
