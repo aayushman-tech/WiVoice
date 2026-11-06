@@ -7,11 +7,13 @@
 	<key>CFBundleIdentifier</key><string>local.wivoice.app</string>
 	<key>CFBundleName</key><string>WiVoice</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
-	<key>CFBundleShortVersionString</key><string>1.0</string>
-	<key>CFBundleVersion</key><string>1</string>
+	<key>CFBundleShortVersionString</key><string>1.1.0</string>
+	<key>CFBundleVersion</key><string>2</string>
+	<key>CFBundleIconFile</key><string>WiVoice.icns</string>
 	<key>LSMinimumSystemVersion</key><string>13.0</string>
 	<key>NSPrincipalClass</key><string>NSApplication</string>
 	<key>NSScreenCaptureUsageDescription</key><string>WiVoice captures Mac system audio so you can listen on another device on your local network.</string>
+	<key>NSMicrophoneUsageDescription</key><string>WiVoice streams microphone audio to your selected device on the local network when Include microphone is enabled.</string>
 	<key>NSLocalNetworkUsageDescription</key><string>WiVoice streams audio to your devices on the local network.</string>
 </dict>
 </plist>

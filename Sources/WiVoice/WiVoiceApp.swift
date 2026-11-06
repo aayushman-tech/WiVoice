@@ -18,10 +18,18 @@ final class AudioBroadcaster: ObservableObject {
     @Published var running = false
     @Published var status = "Ready"
     @Published var address = ""
+    @Published var includeMicrophone = false {
+        didSet {
+            guard running else { return }
+            if includeMicrophone { startMicrophone() } else { stopMicrophone() }
+        }
+    }
     @Published private var audioPackets = 0
+    @Published private var microphonePackets = 0
     private var stream: SCStream?
     private var server: AudioWebSocketServer?
     private let output = AudioOutput()
+    private var microphoneEngine: AVAudioEngine?
 
     func start() async {
         guard !running else { return }
@@ -47,8 +55,9 @@ final class AudioBroadcaster: ObservableObject {
             let server = try AudioWebSocketServer(port: 8765)
             self.server = server
             audioPackets = 0
+            microphonePackets = 0
             output.onAudio = { [weak self, weak server] data in
-                server?.broadcast(data)
+                server?.broadcast(kind: 0, sampleRate: 48_000, pcm: data)
                 Task { @MainActor in
                     guard let self else { return }
                     self.audioPackets += 1
@@ -60,10 +69,15 @@ final class AudioBroadcaster: ObservableObject {
             address = "http://\(host):8765"
             running = true
             status = "Waiting for Mac system audio…"
+            if includeMicrophone { startMicrophone() }
             Task { [weak self] in
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 guard let self, self.running, self.audioPackets == 0 else { return }
-                self.status = "No audio from macOS. It has no output device; install a virtual audio device or restore Hackintosh audio."
+                if self.microphonePackets > 0 {
+                    self.status = "Microphone is streaming. No system audio is available; check the Mac output device."
+                } else {
+                    self.status = "No audio from macOS. It has no output device; install a virtual audio device or restore Hackintosh audio."
+                }
             }
         } catch {
             if error is CaptureError {
@@ -76,9 +90,58 @@ final class AudioBroadcaster: ObservableObject {
     }
 
     func stop() async {
+        stopMicrophone()
         if let stream { try? await stream.stopCapture() }
         stream = nil; server?.stop(); server = nil
         running = false; address = ""; status = "Stopped"
+    }
+
+    private func startMicrophone() {
+        guard microphoneEngine == nil, running, let server else { return }
+        let engine = AVAudioEngine()
+        let input = engine.inputNode
+        let format = input.inputFormat(forBus: 0)
+        guard format.channelCount > 0, format.sampleRate > 0 else {
+            status = "No microphone input is available on this Mac."
+            return
+        }
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+            guard let channels = buffer.floatChannelData else { return }
+            let frames = Int(buffer.frameLength)
+            guard frames > 0 else { return }
+            let channelCount = Int(buffer.format.channelCount)
+            var interleaved = [Float](repeating: 0, count: frames * 2)
+            for frame in 0..<frames {
+                let left = channels[0][frame]
+                let right = channelCount > 1 ? channels[1][frame] : left
+                interleaved[frame * 2] = left
+                interleaved[frame * 2 + 1] = right
+            }
+            let data = interleaved.withUnsafeBytes { Data($0) }
+            server.broadcast(kind: 1, sampleRate: UInt32(buffer.format.sampleRate), pcm: data)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.microphonePackets += 1
+                if self.audioPackets == 0 { self.status = "Microphone is streaming; waiting for Mac system audio…" }
+            }
+        }
+        do {
+            try engine.start()
+            microphoneEngine = engine
+            status = "System audio and microphone are streaming."
+        } catch {
+            input.removeTap(onBus: 0)
+            status = "Could not start microphone: \(error.localizedDescription)"
+            includeMicrophone = false
+        }
+    }
+
+    private func stopMicrophone() {
+        if let engine = microphoneEngine {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+            microphoneEngine = nil
+        }
     }
 
     private static func localAddress() -> String? {
@@ -113,7 +176,11 @@ struct MainView: View {
         VStack(spacing: 20) {
             Image(systemName: "waveform.circle.fill").font(.system(size: 56)).foregroundStyle(.tint)
             Text("WiVoice").font(.largeTitle.bold())
-            Text("Send your Mac’s system audio to another device on the same Wi-Fi network.").multilineTextAlignment(.center).foregroundStyle(.secondary)
+            Text("Send your Mac’s system audio and microphone to another device on the same Wi-Fi network.").multilineTextAlignment(.center).foregroundStyle(.secondary)
+            Toggle("Include microphone", isOn: $broadcaster.includeMicrophone)
+                .toggleStyle(.switch).fixedSize()
+            Text("Microphone access is requested when you start streaming with this enabled.")
+                .font(.caption2).foregroundStyle(.tertiary).multilineTextAlignment(.center)
             if broadcaster.running {
                 VStack(spacing: 8) {
                     Text("On your iPad or phone, open this address").foregroundStyle(.secondary)
@@ -171,10 +238,14 @@ private final class AudioWebSocketServer {
         listener.newConnectionHandler = { [weak self] connection in self?.accept(connection) }
         listener.start(queue: queue)
     }
-    func broadcast(_ data: Data) {
+    func broadcast(kind: UInt8, sampleRate: UInt32, pcm: Data) {
         queue.async { [weak self] in
             guard let self else { return }
-            let frame = Self.frame(data)
+            var packet = Data([kind])
+            var rate = sampleRate.bigEndian
+            withUnsafeBytes(of: &rate) { packet.append(contentsOf: $0) }
+            packet.append(pcm)
+            let frame = Self.frame(packet)
             for client in self.clients { client.send(content: frame, completion: .contentProcessed { _ in }) }
         }
     }
