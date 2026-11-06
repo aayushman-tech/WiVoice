@@ -16,6 +16,8 @@ On first use, allow WiVoice in System Settings → Privacy & Security → Screen
 
 To also send the Mac microphone, enable **Include microphone** before starting. Allow microphone access when macOS asks. The receiving device plays microphone and system audio together; the mic toggle is off by default.
 
+The receiver page displays incoming packet counts and a signal meter so you can tell whether audio is reaching the device or the Mac is sending silence.
+
 The stream is unencrypted and intended for a trusted local network.
 
 ## Build from source

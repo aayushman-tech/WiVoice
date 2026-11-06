@@ -50,18 +50,20 @@ final class AudioBroadcaster: ObservableObject {
             config.height = 2
             let stream = SCStream(filter: filter, configuration: config, delegate: nil)
             try stream.addStreamOutput(output, type: .audio, sampleHandlerQueue: DispatchQueue(label: "wi.voice.audio"))
-            try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: DispatchQueue(label: "wi.voice.video"))
             self.stream = stream
             let server = try AudioWebSocketServer(port: 8765)
             self.server = server
             audioPackets = 0
             microphonePackets = 0
+            var reportedAudio = false
             output.onAudio = { [weak self, weak server] data in
                 server?.broadcast(kind: 0, sampleRate: 48_000, pcm: data)
-                Task { @MainActor in
+                guard !reportedAudio else { return }
+                reportedAudio = true
+                Task { @MainActor [weak self] in
                     guard let self else { return }
-                    self.audioPackets += 1
-                    if self.audioPackets == 1 { self.status = "Audio is flowing to the receiver" }
+                    self.audioPackets = 1
+                    self.status = "System audio is reaching the receiver."
                 }
             }
             try await stream.startCapture()
@@ -105,6 +107,7 @@ final class AudioBroadcaster: ObservableObject {
             status = "No microphone input is available on this Mac."
             return
         }
+        var reportedMicrophone = false
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
             guard let channels = buffer.floatChannelData else { return }
             let frames = Int(buffer.frameLength)
@@ -119,9 +122,11 @@ final class AudioBroadcaster: ObservableObject {
             }
             let data = interleaved.withUnsafeBytes { Data($0) }
             server.broadcast(kind: 1, sampleRate: UInt32(buffer.format.sampleRate), pcm: data)
+            guard !reportedMicrophone else { return }
+            reportedMicrophone = true
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.microphonePackets += 1
+                self.microphonePackets = 1
                 if self.audioPackets == 0 { self.status = "Microphone is streaming; waiting for Mac system audio…" }
             }
         }

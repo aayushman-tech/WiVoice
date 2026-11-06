@@ -10,8 +10,10 @@ body{font:17px system-ui;background:#111827;color:#f9fafb;max-width:560px;margin
 <p>This device must be on the same Wi-Fi network as the streaming Mac.</p>
 <button id="listen">Listen</button>
 <p id="status">Not connected</p>
+<p id="signal">Audio level: waiting for stream</p>
+<progress id="meter" max="1" value="0" style="width:100%;height:18px"></progress>
 <script>
-let ws,ctx,nextTime=[0,0];
+let ws,ctx,nextTime=[0,0],packetCount=0,lastMeterUpdate=0;
 document.querySelector('#listen').onclick=async()=>{
   try{
     ctx=new (window.AudioContext||window.webkitAudioContext)({sampleRate:48000});await ctx.resume();
@@ -22,6 +24,13 @@ document.querySelector('#listen').onclick=async()=>{
       const kind=bytes[0],sampleRate=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength).getUint32(1,false);
       const floats=new Float32Array(bytes.buffer,bytes.byteOffset+8,Math.floor((bytes.byteLength-8)/4));
       const frames=Math.floor(floats.length/2);if(!frames)return;
+      let sum=0,peak=0;for(let i=0;i<floats.length;i++){const v=floats[i];sum+=v*v;peak=Math.max(peak,Math.abs(v))}
+      packetCount++;
+      const now=performance.now();if(now-lastMeterUpdate>250){
+        const rms=Math.sqrt(sum/floats.length),kindName=kind===1?'Microphone':'System audio';
+        document.querySelector('#signal').textContent=rms<0.0001?`${kindName}: connected, but silent (${packetCount} packets)`:`${kindName}: signal received (${packetCount} packets)`;
+        document.querySelector('#meter').value=Math.min(1,Math.max(rms*4,peak*0.5));lastMeterUpdate=now;
+      }
       const left=new Float32Array(frames),right=new Float32Array(frames);
       for(let i=0;i<frames;i++){left[i]=floats[i*2];right[i]=floats[i*2+1]}
       const audio=ctx.createBuffer(2,frames,sampleRate);audio.copyToChannel(left,0);audio.copyToChannel(right,1);
